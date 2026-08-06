@@ -1,10 +1,16 @@
-from backend.app.main import app
-from fastapi.testclient import TestClient
+import asyncio
 
-client = TestClient(app)
+from httpx import ASGITransport, AsyncClient
+
+from backend.app.main import app
 
 
 def test_health_endpoint() -> None:
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    async def run_test() -> None:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            response = await client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
+
+    asyncio.run(run_test())
