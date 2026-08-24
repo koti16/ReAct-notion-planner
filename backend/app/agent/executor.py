@@ -1,5 +1,6 @@
-print("✅ NEW EXECUTOR LOADED")
-from app.services.notion_service import create_task
+print("NEW EXECUTOR LOADED")
+
+from app.services.notion_service import create_task, get_tasks
 
 
 class ToolExecutor:
@@ -7,6 +8,7 @@ class ToolExecutor:
     @staticmethod
     def execute(action, action_input):
 
+        # Create a new task
         if action == "create_task":
 
             response = create_task(
@@ -21,9 +23,19 @@ class ToolExecutor:
                 "task_id": response["id"]
             }
 
+        # Get all tasks
+        if action == "get_tasks":
+
+            tasks = get_tasks()
+
+            return {
+                "success": True,
+                "message": "Tasks retrieved successfully.",
+                "tasks": tasks
+            }
+
+        # Unknown action
         return {
             "success": False,
             "message": f"Unknown action: {action}"
         }
-        
-        

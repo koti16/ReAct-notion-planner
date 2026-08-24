@@ -1,9 +1,27 @@
-from app.services.notion_service import create_task
+import asyncio
 
-response = create_task(
-    title="Testing Notion API",
-    status="to-do",
-    priority="high"
-)
+from app.services.notion_service import create_task, get_tasks
 
-print(response)
+
+async def main():
+
+    # Create a test task
+    create_task(
+        title="Test task from AI Planner",
+        status="To-do",
+        priority="High"
+    )
+
+    print("Task created successfully!\n")
+
+    # Get all tasks
+    tasks = get_tasks()
+
+    print("Tasks from Notion:")
+
+    for task in tasks:
+        print(task)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

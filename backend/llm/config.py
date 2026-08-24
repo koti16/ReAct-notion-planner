@@ -17,7 +17,7 @@ class LLMConfig:
 
     GROQ_MODEL = os.getenv(
         "GROQ_MODEL",
-        "llama-3.3-70b-versatile"
+        "openai/gpt-oss-20b"
     )
 
     GEMINI_MODEL = os.getenv(
@@ -28,6 +28,11 @@ class LLMConfig:
     OPENAI_MODEL = os.getenv(
         "OPENAI_MODEL",
         "gpt-5.5"
+    )
+
+    OLLAMA_MODEL = os.getenv(
+        "OLLAMA_MODEL",
+        "llama3.2"
     )
 
     TEMPERATURE = float(

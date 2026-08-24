@@ -5,7 +5,7 @@ router = APIRouter(prefix="/notion", tags=["Notion"])
 
 
 @router.post("/task")
-def add_task():
+async def add_task():
     task = create_task("Learn LangGraph")
     return {
         "message": "Task created successfully",

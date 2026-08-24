@@ -27,7 +27,8 @@ class ReActParser:
 
         if action:
             result["action"] = action.group(1).strip()
-            
+
+        text = ""
         if action_input:
             text = action_input.group(1).strip()
 

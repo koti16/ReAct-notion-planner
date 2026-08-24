@@ -1,9 +1,12 @@
+import os
+
 from app.agent.react_agent import ReActAgent
 
-agent = ReActAgent()
 
-result = agent.run(
-    "Create a task called Learn LangGraph."
-)
+if __name__ == "__main__" and os.getenv("RUN_LIVE_AGENT_TEST") == "1":
+    agent = ReActAgent()
 
-print(result)
+    result = agent.run("Create a task called Complete React Notion Planner with high priority.")
+    
+
+    print(result)

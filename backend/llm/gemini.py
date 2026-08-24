@@ -10,9 +10,9 @@ class GeminiLLM(BaseLLM):
     """
 
     def __init__(self):
-        genai.configure(api_key=LLMConfig.GEMINI_API_KEY)
+        getattr(genai, "configure")(api_key=LLMConfig.GEMINI_API_KEY)
 
-        self.model = genai.GenerativeModel(
+        self.model = getattr(genai, "GenerativeModel")(
             LLMConfig.GEMINI_MODEL
         )
 

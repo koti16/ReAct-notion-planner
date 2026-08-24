@@ -1,14 +1,28 @@
-"""Notion-specific tool wrapper for backend operations."""
-
-from backend.app.services.notion_service import NotionService
+from app.services.notion_service import create_task, get_tasks
 
 
-class NotionTool:
-    def __init__(self, service: NotionService | None = None) -> None:
-        self.service = service or NotionService()
+async def add_task(title: str, status: str = "To-do", priority: str = "High"):
+    """Create a new task in the Notion planner."""
 
-    def create_task(self, title: str, description: str | None = None) -> dict[str, object]:
-        return self.service.create_task(title, description)
+    response = create_task(
+        title=title,
+        status=status,
+        priority=priority
+    )
 
-    def list_tasks(self) -> list[dict[str, object]]:
-        return self.service.list_tasks()
+    return {
+        "success": True,
+        "message": f"Task '{title}' created successfully",
+        "task_id": response["id"]
+    }
+
+
+async def list_tasks():
+    """Get all tasks from the Notion planner."""
+
+    tasks = get_tasks()
+
+    return {
+        "success": True,
+        "tasks": tasks
+    }
