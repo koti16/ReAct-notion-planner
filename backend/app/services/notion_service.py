@@ -15,6 +15,28 @@ def _required_env(name: str) -> str:
 
 DATABASE_ID = _required_env("NOTION_DATABASE_ID")
 
+STATUS_MAP = {
+    "to do": "to-do",
+    "to-do": "to-do",
+    "todo": "to-do",
+    "not started": "Not started",
+    "in progress": "In progress",
+    "completed": "Done",
+    "complete": "Done",
+    "done": "Done",
+}
+
+PRIORITY_MAP = {"high": "high", "medium": "MEDIUM", "low": "Low"}
+
+
+def _norm_status(status: str) -> str:
+    return STATUS_MAP.get((status or "").strip().lower(), "to-do")
+
+
+def _norm_priority(priority: str) -> str:
+    p = (priority or "").strip()
+    return PRIORITY_MAP.get(p.lower(), p)
+
 def create_task(title, status="to-do", priority="high"):
     response = getattr(notion.pages, "create")(
         parent={"data_source_id": DATABASE_ID},
@@ -30,17 +52,35 @@ def create_task(title, status="to-do", priority="high"):
             },
             "Status": {
                 "status": {
-                    "name": status
+                    "name": _norm_status(status)
                 }
             },
             "Priority": {
                 "select": {
-                    "name": priority
+                    "name": _norm_priority(priority)
                 }
             }
         }
     )
     return response
+
+def update_task_status(page_id: str, status: str):
+    return notion.pages.update(
+        page_id=page_id,
+        properties={
+            "Status": {
+                "status": {
+                    "name": _norm_status(status)
+                }
+            }
+        }
+    )
+
+def archive_task(page_id: str):
+    return notion.pages.update(
+        page_id=page_id,
+        archived=True
+    )
 
 class NotionService:
     def create_task(self, title: str, description: str | None = None) -> dict:
@@ -65,7 +105,11 @@ def _parse_tasks(response) -> list[dict]:
         if properties.get("Status", {}).get("status"):
             status = properties["Status"]["status"]["name"]
 
-        tasks.append({"title": title, "status": status})
+        priority = None
+        if properties.get("Priority", {}).get("select"):
+            priority = properties["Priority"]["select"]["name"]
+
+        tasks.append({"id": page["id"], "title": title, "status": status, "priority": priority})
 
     return tasks
 

@@ -1,5 +1,3 @@
-print("NEW EXECUTOR LOADED")
-
 from app.services.notion_service import create_task, get_tasks
 
 

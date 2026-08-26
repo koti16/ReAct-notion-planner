@@ -1,3 +1,5 @@
+import json
+
 from llm.factory import LLMFactory
 
 from app.agent.prompts import SYSTEM_PROMPT
@@ -30,11 +32,31 @@ User:
                 parsed["action_input"]
             )
 
+            follow_up = f"""
+{prompt}
+
+Assistant:
+{response}
+
+Observation:
+{json.dumps(observation, default=str)}
+
+Use the Observation to write the Final Answer for the user.
+If the Observation contains tasks, list them clearly.
+If it reports an error, explain it simply.
+"""
+
+            final_response = self.llm.generate(follow_up)
+            final_parsed = ReActParser.parse(final_response)
+
+            answer = final_parsed["final_answer"]
+
             return {
                 "thought": parsed["thought"],
                 "action": parsed["action"],
                 "action_input": parsed["action_input"],
-                "observation": observation
+                "observation": observation,
+                "answer": answer or observation.get("message", "Done.")
             }
 
         return {
