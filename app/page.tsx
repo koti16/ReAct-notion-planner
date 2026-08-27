@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 type View = "Dashboard" | "Tasks" | "AI Assistant" | "Planner" | "Analytics" | "Settings";
 type Task = { title: string; project: string; status: string; priority: string; date: string; color: string; done?: boolean; uid?: string; notionId?: string };
 
