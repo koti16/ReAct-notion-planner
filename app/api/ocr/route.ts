@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractDocumentText } from "@/src/lib/ocr";
+import { extractDocumentText } from "@/lib/ocr";
 
 export const maxDuration = 60;
 

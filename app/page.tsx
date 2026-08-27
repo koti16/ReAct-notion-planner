@@ -33,6 +33,60 @@ export default function HomePage() {
     document.documentElement.setAttribute("data-reduce", reduceMotion ? "on" : "off");
   }, [theme, reduceMotion]);
 
+  const [notionStatus, setNotionStatus] = useState<{
+    checked: boolean;
+    checking: boolean;
+    connected: boolean;
+    hasToken: boolean;
+    hasDatabaseId: boolean;
+    workspaceName?: string;
+    error?: string;
+  }>({
+    checked: false,
+    checking: true,
+    connected: false,
+    hasToken: false,
+    hasDatabaseId: false,
+  });
+
+  const verifyNotion = useCallback(() => {
+    setNotionStatus((prev) => ({ ...prev, checking: true }));
+    fetch("/api/notion/status")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          setNotionStatus({
+            checked: true,
+            checking: false,
+            connected: Boolean(data.connected),
+            hasToken: Boolean(data.hasToken),
+            hasDatabaseId: Boolean(data.hasDatabaseId),
+            workspaceName: data.workspaceName,
+            error: data.error,
+          });
+        } else {
+          setNotionStatus({
+            checked: true,
+            checking: false,
+            connected: false,
+            hasToken: false,
+            hasDatabaseId: false,
+            error: "Unable to verify Notion connection.",
+          });
+        }
+      })
+      .catch((err) => {
+        setNotionStatus({
+          checked: true,
+          checking: false,
+          connected: false,
+          hasToken: false,
+          hasDatabaseId: false,
+          error: err?.message || "Network error while verifying Notion connection.",
+        });
+      });
+  }, []);
+
   useEffect(() => {
     try {
       const s = localStorage.getItem("tasks");
@@ -41,7 +95,11 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    fetch("/notion/tasks")
+    verifyNotion();
+  }, [verifyNotion]);
+
+  useEffect(() => {
+    fetch("/api/notion/tasks")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data?.tasks?.length) return;
@@ -84,20 +142,22 @@ export default function HomePage() {
   const deleteTask = (task: Task) => {
     setTaskState((current) => current.filter((t) => t !== task));
     if (task.notionId) {
-      fetch("/notion/task", {
+      fetch("/api/notion/task", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ page_id: task.notionId }),
       }).catch(() => {});
     }
   };
-  const addTask = (title: string, priority: string) => {
+  const addTask = (title: string, priority: string, date: string = "Today") => {
     const uid = crypto.randomUUID();
-    setTaskState((current) => [{ title, project: "Inbox", status: "To do", priority, date: "Today", color: "blue", uid }, ...current]);
-    fetch("/notion/task", {
+    const colorMap: Record<string, string> = { High: "coral", Medium: "violet", Low: "blue" };
+    const color = colorMap[priority] || "blue";
+    setTaskState((current) => [{ title, project: "Inbox", status: "To do", priority, date: date || "Today", color, uid }, ...current]);
+    fetch("/api/notion/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, status: "To do", priority }),
+      body: JSON.stringify({ title, status: "To do", priority, date: date || "Today" }),
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -107,7 +167,7 @@ export default function HomePage() {
   };
   const syncStatus = (task: Task, status: string) => {
     if (!task.notionId) return;
-    fetch("/notion/task", {
+    fetch("/api/notion/task", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ page_id: task.notionId, status }),
@@ -117,6 +177,11 @@ export default function HomePage() {
     const t = title.trim();
     if (!t) return;
     setTaskState((current) => current.map((x) => (x === task ? { ...x, title: t } : x)));
+  };
+  const editDueDate = (task: Task, date: string) => {
+    const d = date.trim();
+    if (!d) return;
+    setTaskState((current) => current.map((x) => (x === task ? { ...x, date: d } : x)));
   };
   const cycleStatus = (task: Task) => {
     const order = ["To do", "In progress", "Completed"];
@@ -137,9 +202,21 @@ export default function HomePage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, model: "gemini-3.7-flash" }),
       });
       const data = await res.json();
+      if (data.createdTask) {
+        const newTask: Task = {
+          title: data.createdTask.title,
+          project: data.createdTask.project || "General",
+          status: data.createdTask.status || "To do",
+          priority: data.createdTask.priority || "High",
+          date: data.createdTask.date || "Today",
+          color: data.createdTask.priority === "High" ? "coral" : data.createdTask.priority === "Low" ? "green" : "blue",
+          done: false,
+        };
+        setTaskState((prev) => [newTask, ...prev]);
+      }
       return data.answer ?? "Hmm, I couldn't get a response.";
     } catch {
       return "Connection error — please try again.";
@@ -267,16 +344,31 @@ export default function HomePage() {
               onComplete={completeTask}
               onDelete={deleteTask}
               onEdit={editTaskTitle}
+              onEditDueDate={editDueDate}
               onCycleStatus={cycleStatus}
               onCyclePriority={cyclePriority}
               onNew={() => setShowModal(true)}
             />
           )}
           {view === "AI Assistant" && <Assistant prompt={prompt} setPrompt={setPrompt} thinking={thinking} ask={ask} />}
-          {view === "Planner" && <Planner tasks={taskState} />}
-          {view === "Analytics" && <Analytics />}
+          {view === "Planner" && (
+            <Planner
+              tasks={taskState}
+              onReschedule={editDueDate}
+              onComplete={completeTask}
+              onNew={() => setShowModal(true)}
+            />
+          )}
+          {view === "Analytics" && <Analytics tasks={taskState} />}
           {view === "Settings" && (
-            <Settings theme={theme} setTheme={setTheme} reduceMotion={reduceMotion} setReduceMotion={setReduceMotion} />
+            <Settings
+              theme={theme}
+              setTheme={setTheme}
+              reduceMotion={reduceMotion}
+              setReduceMotion={setReduceMotion}
+              notionStatus={notionStatus}
+              onRecheckNotion={verifyNotion}
+            />
           )}
         </div>
       </main>
@@ -347,39 +439,67 @@ function Dashboard({
   onAssistant: () => void;
   onViewAll: () => void;
 }) {
+  const [timeRange, setTimeRange] = useState<"week" | "month">("week");
+  const total = tasks.length;
+  const completed = tasks.filter((t) => t.status === "Completed" || t.done).length;
+  const todo = tasks.filter((t) => t.status === "To do" && !t.done).length;
+  const inProgress = tasks.filter((t) => t.status === "In progress" && !t.done).length;
+  
+  const productivityPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const momentumChange = productivityPercent > 50 ? "+6.4%" : "-2.1%";
+
+  // Generate dynamic SVG sparkline path based on task distribution
+  const points = [
+    120 - Math.min(100, (todo * 6)),
+    105 - Math.min(80, (inProgress * 8)),
+    110 - Math.min(90, (completed * 10)),
+    95 - Math.min(75, (completed * 12)),
+    80 - Math.min(60, (productivityPercent * 0.7)),
+    50 - Math.min(40, (completed * 5)),
+    Math.max(15, 130 - (productivityPercent * 1.1)),
+  ];
+
+  const svgPath = `M0 ${points[0]} C60 ${points[0] - 5}, 75 ${points[1]}, 130 ${points[1]} S190 ${points[2]}, 240 ${points[2]} S310 ${points[3]}, 355 ${points[3]} S430 ${points[4]}, 466 ${points[4]} S535 ${points[5]}, 580 ${points[5]} S645 ${points[6]}, 700 ${points[6]}`;
+  const svgFill = `${svgPath} V150 H0Z`;
+
   return (
     <>
       <section className="stats-grid" id="stats-summary">
-        <Stat label="Total tasks" value={String(tasks.length)} change="12%" />
-        <Stat label="To do" value={String(tasks.filter((t) => t.status === "To do").length)} change="4%" />
-        <Stat label="In progress" value={String(tasks.filter((t) => t.status === "In progress").length)} change="8%" />
-        <Stat label="Completed" value={String(tasks.filter((t) => t.status === "Completed").length)} change="18%" positive />
+        <Stat label="Total tasks" value={String(total)} change="12%" />
+        <Stat label="To do" value={String(todo)} change="4%" />
+        <Stat label="In progress" value={String(inProgress)} change="8%" />
+        <Stat label="Completed" value={String(completed)} change="18%" positive />
       </section>
       <section className="hero-grid">
         <article className="panel focus-panel">
           <div className="panel-heading">
             <div>
               <span className="eyebrow">Your productivity</span>
-              <h2>Make today count.</h2>
+              <h2>{productivityPercent >= 75 ? "Crushing your goals." : productivityPercent >= 40 ? "Steady momentum." : "Make today count."}</h2>
             </div>
-            <select aria-label="Time range">
-              <option>This week</option>
-              <option>This month</option>
+            <select
+              aria-label="Time range"
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value as "week" | "month")}
+            >
+              <option value="week">This week</option>
+              <option value="month">This month</option>
             </select>
           </div>
           <div className="focus-number">
-            82<span>%</span>
+            {productivityPercent}<span>%</span>
             <small>
               {" "}
-              weekly momentum <b>↑ 6.4%</b>
+              {timeRange === "week" ? "weekly" : "monthly"} momentum <b>{momentumChange}</b>
+              <span style={{ marginLeft: 8, opacity: 0.8, fontSize: 11 }}>({completed}/{total} completed)</span>
             </small>
           </div>
           <div className="line-chart">
             <svg viewBox="0 0 700 150" preserveAspectRatio="none">
-              <path d="M0 124 C60 118, 75 94, 130 105 S190 72, 240 89 S310 94, 355 53 S430 74, 466 61 S535 78, 580 34 S645 51, 700 18" />
+              <path d={svgPath} />
               <path
                 className="fill"
-                d="M0 124 C60 118, 75 94, 130 105 S190 72, 240 89 S310 94, 355 53 S430 74, 466 61 S535 78, 580 34 S645 51, 700 18 V150 H0Z"
+                d={svgFill}
               />
             </svg>
           </div>
@@ -438,6 +558,7 @@ function TasksView({
   onComplete,
   onDelete,
   onEdit,
+  onEditDueDate,
   onCycleStatus,
   onCyclePriority,
   onNew,
@@ -448,6 +569,7 @@ function TasksView({
   onComplete: (task: Task) => void;
   onDelete: (task: Task) => void;
   onEdit: (task: Task, title: string) => void;
+  onEditDueDate?: (task: Task, date: string) => void;
   onCycleStatus: (task: Task) => void;
   onCyclePriority: (task: Task) => void;
   onNew: () => void;
@@ -560,7 +682,16 @@ function TasksView({
             >
               {task.priority}
             </button>
-            <span className="due-date">{task.date}</span>
+            <button
+              className="due-date-btn"
+              onClick={() => {
+                const d = window.prompt("Update due date (e.g. Today, Tomorrow, Sep 15)", task.date);
+                if (d !== null && d.trim() && onEditDueDate) onEditDueDate(task, d.trim());
+              }}
+              title="Click to change due date"
+            >
+              {task.date}
+            </button>
             <button className="row-menu" onClick={() => onDelete(task)} aria-label={`Delete ${task.title}`}>
               🗑
             </button>
@@ -584,6 +715,11 @@ function Assistant({
 }) {
   const [messages, setMessages] = useState([{ from: "ai", text: "Hey Alex. What are we making space for today?" }]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
 
   const send = async () => {
     if (!prompt.trim()) return;
@@ -591,6 +727,12 @@ function Assistant({
     setMessages((prev) => [...prev, { from: "user", text: currentPrompt }]);
     setPrompt("");
     const reply = await ask(currentPrompt);
+    setMessages((prev) => [...prev, { from: "ai", text: reply }]);
+  };
+
+  const handleSuggestion = async (suggestion: string) => {
+    setMessages((prev) => [...prev, { from: "user", text: suggestion }]);
+    const reply = await ask(suggestion);
     setMessages((prev) => [...prev, { from: "ai", text: reply }]);
   };
 
@@ -633,7 +775,7 @@ function Assistant({
           {messages.map((message, index) => (
             <div className={`message ${message.from}`} key={`${message.text}-${index}`}>
               <span className="message-avatar">{message.from === "ai" ? "✦" : "AM"}</span>
-              <div>{message.text}</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{message.text}</div>
             </div>
           ))}
           {thinking && (
@@ -646,6 +788,7 @@ function Assistant({
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
         <div className="chat-compose">
           <input
@@ -679,7 +822,7 @@ function Assistant({
         <h3>Start with an idea</h3>
         {["Create a high priority task", "Show my tasks for today", "Plan my week", "What needs my attention?"].map(
           (suggestion) => (
-            <button className="suggestion" key={suggestion} onClick={() => setPrompt(suggestion)}>
+            <button className="suggestion" key={suggestion} onClick={() => handleSuggestion(suggestion)}>
               {suggestion}
               <span>↗</span>
             </button>
@@ -690,7 +833,17 @@ function Assistant({
   );
 }
 
-function Planner({ tasks }: { tasks: Task[] }) {
+function Planner({
+  tasks,
+  onReschedule,
+  onComplete,
+  onNew,
+}: {
+  tasks: Task[];
+  onReschedule?: (task: Task, newDate: string) => void;
+  onComplete?: (task: Task) => void;
+  onNew?: () => void;
+}) {
   const mondayOf = (d: Date) => {
     const g = new Date(d);
     const day = (g.getDay() + 6) % 7;
@@ -698,30 +851,131 @@ function Planner({ tasks }: { tasks: Task[] }) {
     g.setHours(0, 0, 0, 0);
     return g;
   };
+
   const today = () => {
     const t = new Date();
     t.setHours(0, 0, 0, 0);
     return t;
   };
+
   const [weekStart, setWeekStart] = useState<{ d: Date }>({ d: mondayOf(new Date()) });
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [dragOverDayLabel, setDragOverDayLabel] = useState<string | null>(null);
+  const [dragOverBacklog, setDragOverBacklog] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 3200);
+  };
+
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.d);
     d.setDate(d.getDate() + i);
     const short = d.toLocaleDateString("en-US", { weekday: "short" });
     const num = d.getDate();
-    return { label: `${short} ${num}`, isToday: d.getTime() === today().getTime(), date: d };
+    return {
+      label: `${short} ${num}`,
+      shortName: short,
+      dayNum: num,
+      isToday: d.getTime() === today().getTime(),
+      date: d,
+    };
   });
+
   const end = new Date(weekStart.d);
   end.setDate(end.getDate() + 6);
   const title = `${weekStart.d.toLocaleDateString("en-US", { month: "long", day: "numeric" })} – ${end.toLocaleDateString(
     "en-US",
     { month: "long", day: "numeric", year: "numeric" }
   )}`;
+
   const shift = (n: number) => {
     const d = new Date(weekStart.d);
     d.setDate(d.getDate() + n);
     setWeekStart({ d });
   };
+
+  const isSameCalendarDay = (taskDateStr: string, targetDate: Date) => {
+    if (!taskDateStr) return false;
+    const s = taskDateStr.trim().toLowerCase();
+    if (s === "—" || s === "none" || s === "unscheduled") return false;
+
+    const tToday = today();
+    const tTarget = new Date(targetDate);
+    tTarget.setHours(0, 0, 0, 0);
+
+    const tTomorrow = new Date(tToday);
+    tTomorrow.setDate(tTomorrow.getDate() + 1);
+
+    const tYesterday = new Date(tToday);
+    tYesterday.setDate(tYesterday.getDate() - 1);
+
+    if (s === "today") return tTarget.getTime() === tToday.getTime();
+    if (s === "tomorrow") return tTarget.getTime() === tTomorrow.getTime();
+    if (s === "yesterday") return tTarget.getTime() === tYesterday.getTime();
+
+    // Check "Aug 27", "August 27", "8/27", etc.
+    const shortMonth = tTarget.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toLowerCase();
+    const longMonth = tTarget.toLocaleDateString("en-US", { month: "long", day: "numeric" }).toLowerCase();
+    if (s === shortMonth || s === longMonth || s.includes(shortMonth)) return true;
+
+    // Check weekday names
+    const weekday = tTarget.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    const weekdayShort = tTarget.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase();
+    if (s === weekday || s === weekdayShort) return true;
+
+    // Check parsed ISO date
+    const parsed = new Date(taskDateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.getDate() === tTarget.getDate() && parsed.getMonth() === tTarget.getMonth();
+    }
+
+    return false;
+  };
+
+  const formatDateForTarget = (targetDate: Date) => {
+    const tToday = today();
+    const target = new Date(targetDate);
+    target.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.round((target.getTime() - tToday.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Tomorrow";
+    if (diffDays === -1) return "Yesterday";
+    return target.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const handleDropOnDay = (targetDay: (typeof days)[0]) => {
+    if (!draggedTask) return;
+    const newFormattedDate = formatDateForTarget(targetDay.date);
+    if (onReschedule) {
+      onReschedule(draggedTask, newFormattedDate);
+    }
+    showToast(`Rescheduled "${draggedTask.title}" to ${targetDay.label}`);
+    setDraggedTask(null);
+    setDragOverDayLabel(null);
+  };
+
+  const handleDropOnBacklog = () => {
+    if (!draggedTask) return;
+    if (onReschedule) {
+      onReschedule(draggedTask, "Unscheduled");
+    }
+    showToast(`Moved "${draggedTask.title}" to Backlog`);
+    setDraggedTask(null);
+    setDragOverBacklog(false);
+  };
+
+  const isTaskScheduledInWeek = (task: Task) => days.some((day) => isSameCalendarDay(task.date, day.date));
+  const unscheduledTasks = tasks.filter((task) => !isTaskScheduledInWeek(task));
+
+  // Upcoming deadlines from active tasks
+  const upcomingTasks = [...tasks]
+    .filter((t) => !t.done && t.status !== "Completed" && t.date !== "—" && t.date !== "Unscheduled")
+    .slice(0, 5);
 
   return (
     <>
@@ -736,14 +990,19 @@ function Planner({ tasks }: { tasks: Task[] }) {
         <button className="filter-button today" onClick={() => setWeekStart({ d: mondayOf(new Date()) })}>
           Today
         </button>
-        <button className="filter-button">Week ⌄</button>
+        <button className="filter-button" onClick={onNew}>
+          + Schedule task
+        </button>
       </div>
-      <section className="calendar panel">
+
+      <section className="calendar panel" id="planner-calendar-grid">
         <div className="calendar-head">
-          <span />
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: "10px" }}>
+            Time
+          </span>
           {days.map((day) => (
             <span className={day.isToday ? "today-label" : ""} key={day.label}>
-              {day.label}
+              {day.label} {day.isToday ? "•" : ""}
             </span>
           ))}
         </div>
@@ -754,43 +1013,226 @@ function Planner({ tasks }: { tasks: Task[] }) {
             ))}
           </div>
           <div className="calendar-columns">
-            {days.map((day, index) => (
-              <div className="day-column" key={day.label}>
-                <div className="drop-zone" style={{ top: index === 0 ? "16%" : index === 3 ? "44%" : "70%" }}>
-                  <span className={`task-color ${tasks[index % tasks.length]?.color || "blue"}`} />
-                  {tasks[index % tasks.length]?.title || "Scheduled task"}
+            {days.map((day) => {
+              const dayTasks = tasks.filter((t) => isSameCalendarDay(t.date, day.date));
+              const isOver = dragOverDayLabel === day.label;
+
+              return (
+                <div
+                  id={`day-col-${day.label.toLowerCase().replace(/\s+/g, "-")}`}
+                  className={`day-column ${isOver ? "drag-over" : ""}`}
+                  key={day.label}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    if (dragOverDayLabel !== day.label) {
+                      setDragOverDayLabel(day.label);
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                    setDragOverDayLabel(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleDropOnDay(day);
+                  }}
+                >
+                  {isOver && (
+                    <div className="planner-drop-indicator">
+                      + Move to {day.label}
+                    </div>
+                  )}
+
+                  {dayTasks.map((task, taskIdx) => {
+                    const isBeingDragged = draggedTask === task;
+                    return (
+                      <div
+                        id={`planner-task-${task.uid || taskIdx}`}
+                        key={task.uid || `${task.title}-${taskIdx}`}
+                        className={`planner-card ${isBeingDragged ? "is-dragging" : ""}`}
+                        draggable={true}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", task.uid || task.title);
+                          e.dataTransfer.effectAllowed = "move";
+                          setDraggedTask(task);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedTask(null);
+                          setDragOverDayLabel(null);
+                        }}
+                      >
+                        <div className="planner-card-header">
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span className="drag-handle" title="Drag to reschedule">⠿</span>
+                            <span className={`task-color ${task.color || "blue"}`} style={{ height: "14px", width: "4px" }} />
+                          </div>
+                          <span className={`pill ${task.status.toLowerCase().replace(/\s+/g, "-")}`} style={{ fontSize: "8px", padding: "2px 5px" }}>
+                            {task.status}
+                          </span>
+                        </div>
+
+                        <div className="planner-card-title" title={task.title}>
+                          {task.title}
+                        </div>
+
+                        <div className="planner-card-footer">
+                          <span style={{ color: "var(--muted)", fontSize: "9px" }}>{task.project || "General"}</span>
+                          {onComplete && (
+                            <button
+                              className={`check ${task.done ? "done" : ""}`}
+                              style={{ width: "14px", height: "14px", fontSize: "9px" }}
+                              onClick={() => onComplete(task)}
+                              title={task.done ? "Completed" : "Mark complete"}
+                            >
+                              {task.done ? "✓" : ""}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {dayTasks.length === 0 && !isOver && (
+                    <div
+                      className="planner-empty-slot"
+                      onClick={() => onNew && onNew()}
+                      title="Click to add or drag a task here"
+                    >
+                      Drag tasks here
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
-      <section className="upcoming panel">
+
+      {unscheduledTasks.length > 0 && (
+        <section className="planner-backlog-section panel" id="planner-backlog-panel">
+          <div className="panel-heading" style={{ marginBottom: "10px" }}>
+            <div>
+              <span className="eyebrow">Task Backlog & Unscheduled</span>
+              <h2>Drag into any day to schedule</h2>
+            </div>
+            <span style={{ fontSize: "11px", color: "var(--muted)" }}>{unscheduledTasks.length} available</span>
+          </div>
+
+          <div
+            id="planner-backlog-tray"
+            className={`planner-backlog-tray ${dragOverBacklog ? "drag-over" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDragOverBacklog(true);
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              setDragOverBacklog(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleDropOnBacklog();
+            }}
+          >
+            {unscheduledTasks.map((task, idx) => (
+              <div
+                id={`backlog-task-${task.uid || idx}`}
+                key={task.uid || `${task.title}-${idx}`}
+                className="planner-backlog-item"
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", task.uid || task.title);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDraggedTask(task);
+                }}
+                onDragEnd={() => {
+                  setDraggedTask(null);
+                  setDragOverBacklog(false);
+                }}
+              >
+                <span className="drag-handle">⠿</span>
+                <span className={`task-color ${task.color || "blue"}`} style={{ height: "12px", width: "3px" }} />
+                <strong style={{ fontSize: "11px", color: "#dce6e3" }}>{task.title}</strong>
+                <span className={`priority ${task.priority.toLowerCase()}`} style={{ fontSize: "8px", padding: "2px 4px" }}>
+                  {task.priority}
+                </span>
+                <small style={{ color: "var(--muted)", fontSize: "9px" }}>({task.date || "No date"})</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="upcoming panel" id="planner-upcoming-panel">
         <div className="panel-heading">
           <h2>Upcoming deadlines</h2>
           <span>Next 7 days</span>
         </div>
         <div className="deadline-list">
-          <span>Today</span>
-          <strong>Finalize Q3 product strategy</strong>
-          <b>4:00 PM</b>
-          <span>Aug 27</span>
-          <strong>Research onboarding patterns</strong>
-          <b>All day</b>
+          {upcomingTasks.length > 0 ? (
+            upcomingTasks.map((t) => (
+              <div key={t.title} style={{ display: "contents" }}>
+                <span>{t.date}</span>
+                <strong>{t.title}</strong>
+                <b>{t.priority}</b>
+              </div>
+            ))
+          ) : (
+            <div style={{ gridColumn: "1/-1", color: "var(--muted)", padding: "10px 0" }}>
+              No upcoming deadlines scheduled for the current week.
+            </div>
+          )}
         </div>
       </section>
+
+      {toastMessage && (
+        <div className="reschedule-toast" id="reschedule-toast">
+          <span style={{ color: "var(--teal)", fontSize: "14px" }}>✓</span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </>
   );
 }
 
-function Analytics() {
+function Analytics({ tasks }: { tasks: Task[] }) {
+  const total = tasks.length;
+  const completed = tasks.filter((t) => t.status === "Completed" || t.done).length;
+  const inProgress = tasks.filter((t) => t.status === "In progress" && !t.done).length;
+  const todo = tasks.filter((t) => t.status === "To do" && !t.done).length;
+
+  const highPriority = tasks.filter((t) => t.priority === "High").length;
+  const medPriority = tasks.filter((t) => t.priority === "Medium").length;
+  const lowPriority = tasks.filter((t) => t.priority === "Low").length;
+
+  const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const estimatedFocusHours = (completed * 1.5 + inProgress * 0.8).toFixed(1);
+  const avgTaskTime = total > 0 ? Math.round(35 + (highPriority * 4) - (completed * 2)) : 0;
+
+  // Donut chart gradient calculation
+  const highPercent = total > 0 ? Math.round((highPriority / total) * 100) : 33;
+  const medPercent = total > 0 ? Math.round((medPriority / total) * 100) : 33;
+  const conic = `conic-gradient(var(--coral) 0 ${highPercent}%, var(--yellow) ${highPercent}% ${highPercent + medPercent}%, var(--blue) ${highPercent + medPercent}% 100%)`;
+
+  const weeklyData: [string, number][] = [
+    ["Mon", Math.min(100, Math.max(20, (todo * 12) + 20))],
+    ["Tue", Math.min(100, Math.max(30, (inProgress * 15) + 30))],
+    ["Wed", Math.min(100, Math.max(15, (completed * 10) + 25))],
+    ["Thu", Math.min(100, Math.max(40, (completionRate * 0.8) + 15))],
+    ["Fri", Math.min(100, Math.max(25, (highPriority * 18) + 20))],
+    ["Sat", Math.min(100, Math.max(10, (completed * 6) + 15))],
+    ["Sun", Math.min(100, Math.max(20, (total * 8) + 10))],
+  ];
+
   return (
     <>
       <section className="stats-grid" id="analytics-stats">
-        <Stat label="Completion rate" value="76%" change="9%" positive />
-        <Stat label="Focus hours" value="34.8h" change="12%" positive />
-        <Stat label="Avg. task time" value="42m" change="6%" />
-        <Stat label="Tasks completed" value="23" change="18%" positive />
+        <Stat label="Completion rate" value={`${completionRate}%`} change="9%" positive={completionRate >= 50} />
+        <Stat label="Focus hours" value={`${estimatedFocusHours}h`} change="12%" positive />
+        <Stat label="Avg. task time" value={`${avgTaskTime > 0 ? avgTaskTime : 40}m`} change="6%" />
+        <Stat label="Tasks completed" value={String(completed)} change="18%" positive />
       </section>
       <section className="analytics-grid">
         <article className="panel large-chart">
@@ -799,7 +1241,7 @@ function Analytics() {
               <span className="eyebrow">Momentum</span>
               <h2>Productivity over time</h2>
             </div>
-            <span>Last 30 days ⌄</span>
+            <span>Last 30 days</span>
           </div>
           <div className="line-chart tall">
             <svg viewBox="0 0 700 190" preserveAspectRatio="none">
@@ -814,26 +1256,26 @@ function Analytics() {
         <article className="panel distribution">
           <div className="panel-heading">
             <h2>Priority distribution</h2>
-            <span>48 tasks</span>
+            <span>{total} tasks</span>
           </div>
-          <div className="donut">
+          <div className="donut" style={{ background: conic }}>
             <div>
-              <strong>48</strong>
+              <strong>{total}</strong>
               <small>total tasks</small>
             </div>
           </div>
           <div className="legend">
             <span>
               <i className="coral-bg" />
-              High <b>12</b>
+              High <b>{highPriority}</b>
             </span>
             <span>
               <i className="yellow-bg" />
-              Medium <b>24</b>
+              Medium <b>{medPriority}</b>
             </span>
             <span>
               <i className="blue-bg" />
-              Low <b>12</b>
+              Low <b>{lowPriority}</b>
             </span>
           </div>
         </article>
@@ -841,19 +1283,11 @@ function Analytics() {
       <section className="panel">
         <div className="panel-heading">
           <h2>Weekly progress</h2>
-          <span>Goal: 30 tasks</span>
+          <span>Goal: {Math.max(10, total + 5)} tasks</span>
         </div>
         <div className="weekly-bars">
-          {[
-            ["Mon", 60],
-            ["Tue", 78],
-            ["Wed", 44],
-            ["Thu", 92],
-            ["Fri", 68],
-            ["Sat", 35],
-            ["Sun", 55],
-          ].map(([day, height]) => (
-            <div key={day as string}>
+          {weeklyData.map(([day, height]) => (
+            <div key={day}>
               <span style={{ height: `${height}%` }} />
               <small>{day}</small>
             </div>
@@ -869,11 +1303,23 @@ function Settings({
   setTheme,
   reduceMotion,
   setReduceMotion,
+  notionStatus,
+  onRecheckNotion,
 }: {
   theme: "dark" | "light" | "system";
   setTheme: (t: "dark" | "light" | "system") => void;
   reduceMotion: boolean;
   setReduceMotion: (b: boolean) => void;
+  notionStatus: {
+    checked: boolean;
+    checking: boolean;
+    connected: boolean;
+    hasToken: boolean;
+    hasDatabaseId: boolean;
+    workspaceName?: string;
+    error?: string;
+  };
+  onRecheckNotion: () => void;
 }) {
   return (
     <div className="settings-grid" id="settings-grid">
@@ -914,41 +1360,134 @@ function Settings({
           </button>
         </div>
       </section>
-      <section className="panel settings-card">
+      <section className="panel settings-card" id="settings-integrations-card">
         <div className="panel-heading">
           <div>
             <span className="eyebrow">Connections</span>
-            <h2>Integrations</h2>
+            <h2>Integrations & Environment</h2>
           </div>
         </div>
         <div className="connection">
           <span className="connection-icon notion">N</span>
           <div>
             <strong>Notion</strong>
-            <small>Tasks are synced with your workspace</small>
+            <small>
+              {notionStatus.connected
+                ? notionStatus.workspaceName || "Synced with live Notion database"
+                : "Using local in-memory store (API keys not configured)"}
+            </small>
           </div>
-          <span className="connected">Connected</span>
+          {notionStatus.checking ? (
+            <span className="connected" style={{ color: "var(--muted)" }}>
+              Checking...
+            </span>
+          ) : notionStatus.connected ? (
+            <span className="connected active">
+              <i className="connected-dot" /> Connected
+            </span>
+          ) : (
+            <span className="connected warning">
+              <i className="connected-dot warning" /> Local mode
+            </span>
+          )}
         </div>
+
+        {notionStatus.checked && !notionStatus.connected && (
+          <div className="notion-notice-card" id="notion-env-warning">
+            <div className="notion-notice-header">
+              <div className="notion-notice-title">
+                <span>⚠</span> Notion Connection Notice
+              </div>
+              <button
+                className="recheck-btn"
+                onClick={onRecheckNotion}
+                disabled={notionStatus.checking}
+                title="Verify environment variables"
+              >
+                {notionStatus.checking ? "Verifying..." : "↻ Test Connection"}
+              </button>
+            </div>
+
+            <p className="notion-notice-desc">
+              PlanAI is currently operating in <strong>Local Storage Mode</strong>. To sync your tasks directly with your live Notion database, add these environment variables in your <code>.env</code> file or Project Settings:
+            </p>
+
+            <div className="notion-env-list">
+              <div className="notion-env-item">
+                <span>NOTION_TOKEN</span>
+                <span className={`notion-env-status ${notionStatus.hasToken ? "set" : "missing"}`}>
+                  {notionStatus.hasToken ? "Configured" : "Missing"}
+                </span>
+              </div>
+              <div className="notion-env-item">
+                <span>NOTION_DATABASE_ID</span>
+                <span className={`notion-env-status ${notionStatus.hasDatabaseId ? "set" : "missing"}`}>
+                  {notionStatus.hasDatabaseId ? "Configured" : "Missing"}
+                </span>
+              </div>
+            </div>
+
+            <div className="notion-notice-footer">
+              <span>{notionStatus.error || "Tasks created will be stored in your local session."}</span>
+            </div>
+          </div>
+        )}
+
         <div className="connection">
           <span className="connection-icon sparkle">✦</span>
           <div>
-            <strong>AI provider</strong>
-            <small>Ready to plan alongside you</small>
+            <strong>AI Provider (Gemini)</strong>
+            <small>Connected to intelligent planning agent</small>
           </div>
-          <span className="connected">Connected</span>
+          <span className="connected active">
+            <i className="connected-dot" /> Connected
+          </span>
         </div>
       </section>
     </div>
   );
 }
 
-function NewTaskModal({ onClose, onAdd }: { onClose: () => void; onAdd: (title: string, priority: string) => void }) {
+function NewTaskModal({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (title: string, priority: string, date: string) => void;
+}) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("High");
+  const [dueDate, setDueDate] = useState("Today");
+  const [isCustom, setIsCustom] = useState(false);
+  const [customDate, setCustomDate] = useState("");
+
   const priorities = ["High", "Medium", "Low"];
+  const datePresets = ["Today", "Tomorrow", "This Friday", "Next Monday", "In 1 week"];
+
+  const handlePresetSelect = (val: string) => {
+    if (val === "custom") {
+      setIsCustom(true);
+    } else {
+      setIsCustom(false);
+      setDueDate(val);
+    }
+  };
+
+  const handleCustomDateChange = (val: string) => {
+    setCustomDate(val);
+    if (val) {
+      const parts = val.split("-");
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        const formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        setDueDate(formatted);
+      }
+    }
+  };
+
   const create = () => {
     if (!title.trim()) return;
-    onAdd(title.trim(), priority);
+    onAdd(title.trim(), priority, dueDate || "Today");
     onClose();
   };
 
@@ -968,18 +1507,43 @@ function NewTaskModal({ onClose, onAdd }: { onClose: () => void; onAdd: (title: 
         />
         <div className="modal-fields">
           <button
+            type="button"
             id="priority-select-btn"
             onClick={(event) => {
               event.stopPropagation();
               setPriority(priorities[(priorities.indexOf(priority) + 1) % priorities.length]);
             }}
           >
-            {priority} priority <span>⌄</span>
+            <span>Priority:</span>
+            <span>{priority} ⌄</span>
           </button>
-          <button>
-            Due date <span>Today ⌄</span>
-          </button>
+          <select
+            id="due-date-select"
+            className="modal-select"
+            value={isCustom ? "custom" : dueDate}
+            onChange={(e) => handlePresetSelect(e.target.value)}
+            aria-label="Select due date"
+          >
+            {datePresets.map((preset) => (
+              <option key={preset} value={preset}>
+                Due: {preset}
+              </option>
+            ))}
+            <option value="custom">Custom date...</option>
+          </select>
         </div>
+        {isCustom && (
+          <div className="modal-custom-date">
+            <label htmlFor="custom-date-picker">Select date:</label>
+            <input
+              type="date"
+              id="custom-date-picker"
+              value={customDate}
+              onChange={(e) => handleCustomDateChange(e.target.value)}
+              className="date-input-field"
+            />
+          </div>
+        )}
         <div className="modal-actions">
           <button id="cancel-task-btn" className="secondary-button" onClick={onClose}>
             Cancel

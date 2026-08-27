@@ -5,12 +5,19 @@ export async function extractDocumentText(filename: string, buffer: Buffer, mime
 
   if (apiKey) {
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
       const base64Data = buffer.toString("base64");
       const detectedMime = mimeType || (filename.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/png");
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.7-flash",
         contents: [
           {
             role: "user",

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createTask, updateTaskStatus, archiveTask } from "@/src/lib/notion";
+import { createTask, updateTaskStatus, archiveTask } from "@/lib/notion";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       id: result.id,
     });
   } catch (error: any) {
-    console.error("POST /notion/task error:", error);
+    console.error("POST /api/notion/task error:", error);
     return NextResponse.json({ error: error?.message || "Internal error" }, { status: 500 });
   }
 }
@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest) {
     await updateTaskStatus(page_id, status);
     return NextResponse.json({ message: "Task updated successfully" });
   } catch (error: any) {
-    console.error("PUT /notion/task error:", error);
+    console.error("PUT /api/notion/task error:", error);
     return NextResponse.json({ error: error?.message || "Internal error" }, { status: 500 });
   }
 }
@@ -50,7 +50,7 @@ export async function DELETE(req: NextRequest) {
     await archiveTask(page_id);
     return NextResponse.json({ message: "Task archived successfully" });
   } catch (error: any) {
-    console.error("DELETE /notion/task error:", error);
+    console.error("DELETE /api/notion/task error:", error);
     return NextResponse.json({ error: error?.message || "Internal error" }, { status: 500 });
   }
 }
