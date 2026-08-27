@@ -1460,6 +1460,7 @@ function NewTaskModal({
   const [dueDate, setDueDate] = useState("Today");
   const [isCustom, setIsCustom] = useState(false);
   const [customDate, setCustomDate] = useState("");
+  const [error, setError] = useState("");
 
   const priorities = ["High", "Medium", "Low"];
   const datePresets = ["Today", "Tomorrow", "This Friday", "Next Monday", "In 1 week"];
@@ -1475,6 +1476,7 @@ function NewTaskModal({
 
   const handleCustomDateChange = (val: string) => {
     setCustomDate(val);
+    setError("");
     if (val) {
       const parts = val.split("-");
       if (parts.length === 3) {
@@ -1486,23 +1488,42 @@ function NewTaskModal({
   };
 
   const create = () => {
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setError("Add a task title before creating it.");
+      return;
+    }
+    if (isCustom && !customDate) {
+      setError("Choose a custom due date or select a preset.");
+      return;
+    }
     onAdd(title.trim(), priority, dueDate || "Today");
     onClose();
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose} id="new-task-modal-backdrop">
-      <div className="modal" onClick={(event) => event.stopPropagation()} id="new-task-modal">
+      <form
+        className="modal"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          create();
+        }}
+        id="new-task-modal"
+      >
         <span className="eyebrow">Quick capture</span>
         <h2>Create a new task</h2>
         <p>Give your next action a clear home.</p>
         <input
           id="new-task-title-input"
+          name="title"
+          required
           autoFocus
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && create()}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            if (error) setError("");
+          }}
           placeholder="What needs to be done?"
         />
         <div className="modal-fields">
@@ -1521,7 +1542,10 @@ function NewTaskModal({
             id="due-date-select"
             className="modal-select"
             value={isCustom ? "custom" : dueDate}
-            onChange={(e) => handlePresetSelect(e.target.value)}
+            onChange={(event) => {
+              setError("");
+              handlePresetSelect(event.target.value);
+            }}
             aria-label="Select due date"
           >
             {datePresets.map((preset) => (
@@ -1544,15 +1568,16 @@ function NewTaskModal({
             />
           </div>
         )}
+        {error && <p className="modal-error" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button id="cancel-task-btn" className="secondary-button" onClick={onClose}>
+          <button id="cancel-task-btn" type="button" className="secondary-button" onClick={onClose}>
             Cancel
           </button>
-          <button id="create-task-confirm-btn" className="primary-button" onClick={create}>
+          <button id="create-task-confirm-btn" type="submit" className="primary-button">
             Create task
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
