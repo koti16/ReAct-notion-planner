@@ -17,7 +17,7 @@ export async function extractDocumentText(filename: string, buffer: Buffer, mime
       const detectedMime = mimeType || (filename.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/png");
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
+        model: "gemini-3.6-flash",
         contents: [
           {
             role: "user",
