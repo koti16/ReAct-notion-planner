@@ -1,0 +1,3 @@
+"use client"
+import { Bell, Menu, Search } from "lucide-react"
+export function Header({ onMenu, active }: { onMenu: () => void; active: string }) { return <header className="topbar"><div className="topbar-title"><button className="menu-button" onClick={onMenu} aria-label="Open navigation"><Menu size={21} /></button><div><span className="eyebrow">Workspace / {active}</span><h1>{active}</h1></div></div><div className="topbar-actions"><label className="search"><Search size={17} /><input placeholder="Search anything" aria-label="Search" /></label><button className="icon-button notification" aria-label="Notifications"><Bell size={18} /><i /></button><span className="top-avatar">AR</span></div></header> }
