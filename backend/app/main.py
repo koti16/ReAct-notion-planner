@@ -1,5 +1,14 @@
 import os
 from typing import Any, Dict, List
+from io import BytesIO
+
+import pytesseract
+from PIL import Image
+
+# Tell pytesseract exactly where Tesseract is installed
+pytesseract.pytesseract.tesseract_cmd = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,14 +145,42 @@ def chat(request: PlanRequest):
         "status": "ok",
     }
 
-
 @app.post("/api/ocr")
 async def ocr(file: UploadFile = File(...)):
     filename = file.filename or "upload"
-    content = await file.read()
-    text = (
-        f"OCR extracted for {filename}: "
-        f"{len(content)} bytes received. "
-        "The planner is ready to turn this into actionable tasks."
-    )
-    return {"text": text, "filename": filename}
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload an image file."
+        )
+
+    try:
+        content = await file.read()
+
+        image = Image.open(BytesIO(content))
+
+        # Convert to RGB for reliable OCR
+        image = image.convert("RGB")
+
+        text = pytesseract.image_to_string(image).strip()
+
+        if not text:
+            return {
+                "ok": True,
+                "text": "",
+                "filename": filename,
+                "message": "No readable text was found in the image."
+            }
+
+        return {
+            "ok": True,
+            "text": text,
+            "filename": filename,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR failed: {str(exc)}"
+        )
